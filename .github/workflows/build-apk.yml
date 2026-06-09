@@ -1,0 +1,38 @@
+name: APK Builder
+on:
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: 'URL ZIP'
+        required: true
+        type: string
+      chat_id:
+        description: 'Chat ID'
+        required: true
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download
+        run: |
+          curl -L "${{ github.event.inputs.zip_url }}" -o project.zip
+          mkdir app
+          unzip -q project.zip -d app/
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Build
+        run: |
+          cd app
+          find . -name "pubspec.yaml" | head -1 | xargs dirname | xargs -I {} cd {}
+          flutter pub get
+          flutter build apk --release
+      - name: Send
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ github.event.inputs.chat_id }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: "✅ APK Siap!"
+          document: $(find . -name "*.apk" | head -1)
