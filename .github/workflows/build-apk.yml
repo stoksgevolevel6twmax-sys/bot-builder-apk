@@ -1,14 +1,22 @@
-name: 🔥 APK MASTER BUILDER
+name: Build APK from ZIP
 
 on:
   workflow_dispatch:
     inputs:
       zip_url:
-        description: 'URL ZIP Project'
+        description: 'URL ZIP project'
         required: true
         type: string
+      project_type:
+        description: 'Tipe project'
+        required: true
+        default: 'flutter'
+        type: choice
+        options:
+          - flutter
+          - native
       chat_id:
-        description: 'ID Telegram'
+        description: 'Telegram chat ID'
         required: true
         type: string
 
@@ -16,58 +24,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: ⬇️ Download ZIP
+      - name: Download ZIP
         run: |
           curl -L "${{ github.event.inputs.zip_url }}" -o project.zip
           mkdir app
           unzip -q project.zip -d app/
-          
-      - name: 📂 Cari Root Project
-        id: cari
-        run: |
-          cd app
-          FILE=$(find . -name "pubspec.yaml" | head -1)
-          if [ -n "$FILE" ]; then
-            DIR=$(dirname "$FILE")
-            echo "root=$DIR" >> $GITHUB_OUTPUT
-            echo "type=flutter" >> $GITHUB_OUTPUT
-          else
-            echo "root=." >> $GITHUB_OUTPUT
-            echo "type=native" >> $GITHUB_OUTPUT
-          fi
-          
-      - name: ☕ Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          
-      - name: 🟢 Setup Flutter
-        if: steps.cari.outputs.type == 'flutter'
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
-          
-      - name: 🛠️ Build Flutter APK
-        if: steps.cari.outputs.type == 'flutter'
+          channel: stable
+      - name: Build APK
         run: |
-          cd app/${{ steps.cari.outputs.root }}
-          flutter clean
+          cd app
+          find . -name "pubspec.yaml" | head -1 | xargs dirname | xargs -I {} cd {}
           flutter pub get
           flutter build apk --release
-          
-      - name: 🤖 Build Native APK
-        if: steps.cari.outputs.type == 'native'
-        run: |
-          cd app/${{ steps.cari.outputs.root }}
-          chmod +x gradlew
-          ./gradlew assembleRelease
-          
-      - name: 🔍 Cari APK
-        id: apk
-        run: |
-          APK=$(find app -name "*.apk" | grep -v "unsigned" | head -1)
-          echo "path=$APK" >> $GITHUB_OUTPUT
+      - name: Send APK
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ github.event.inputs.chat_id }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: "✅ APK Siap!"
+          document: $(find . -name "*.apk" | head -1)          echo "path=$APK" >> $GITHUB_OUTPUT
           ls -la "$APK"
           
       - name: 📤 Kirim ke Telegram
