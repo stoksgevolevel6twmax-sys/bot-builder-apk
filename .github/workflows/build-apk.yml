@@ -29,20 +29,83 @@ jobs:
           curl -L "${{ github.event.inputs.zip_url }}" -o project.zip
           mkdir app
           unzip -q project.zip -d app/
+          
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          
       - name: Setup Flutter
+        if: ${{ github.event.inputs.project_type == 'flutter' }}
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - name: Build APK
+          
+      - name: Build Flutter APK
+        if: ${{ github.event.inputs.project_type == 'flutter' }}
         run: |
           cd app
-          find . -name "pubspec.yaml" | head -1 | xargs dirname | xargs -I {} cd {}
-          flutter pub get
-          flutter build apk --release
-      - name: Send APK
+          if [ -f "pubspec.yaml" ]; then
+            flutter pub get
+            flutter build apk --release
+          else
+            SUBDIR=$(find . -name "pubspec.yaml" -type f | head -1 | xargs dirname)
+            cd "$SUBDIR"
+            flutter pub get
+            flutter build apk --release
+          fi
+          
+      - name: Setup Gradle
+        if: ${{ github.event.inputs.project_type == 'native' }}
+        run: |
+          cd app
+          chmod +x gradlew 2>/dev/null || true
+          find . -name "gradlew" -exec chmod +x {} \;
+          
+      - name: Build Native APK
+        if: ${{ github.event.inputs.project_type == 'native' }}
+        run: |
+          cd app
+          if [ -f "gradlew" ]; then
+            ./gradlew assembleRelease --no-daemon
+          else
+            SUBDIR=$(find . -name "gradlew" -type f | head -1 | xargs dirname)
+            cd "$SUBDIR"
+            ./gradlew assembleRelease --no-daemon
+          fi
+          
+      - name: Find APK
+        id: find_apk
+        run: |
+          APK_PATH=$(find . -name "*.apk" -type f | grep -v "unsigned" | head -1)
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH=$(find . -name "*.apk" -type f | head -1)
+          fi
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "APK found: $APK_PATH"
+          
+      - name: Send APK to Telegram
         uses: appleboy/telegram-action@master
         with:
           to: ${{ github.event.inputs.chat_id }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: "✅ APK Siap!"
-          document: $(find . -name "*.apk" | head -1)
+          message: |
+            ✅ *APK BUILD SUCCESS!*
+            
+            📱 Type: ${{ github.event.inputs.project_type }}
+            
+            APK siap diinstall.
+          document: ${{ steps.find_apk.outputs.apk_path }}
+          
+      - name: Notify failure
+        if: failure()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ github.event.inputs.chat_id }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ❌ *APK BUILD FAILED!*
+            
+            Type: ${{ github.event.inputs.project_type }}
+            Cek log GitHub Actions.
